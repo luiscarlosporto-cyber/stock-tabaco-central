@@ -1,0 +1,19 @@
+STOCK TABACO CENTRAL — pacote inicial
+
+FICHEIROS
+- index.html: aplicação móvel/PWA
+- manifest.json e sw.js: instalação e cache básico
+- supabase_schema.sql: esquema SQL de demonstração
+- catalogo_inicial.json: catálogo importado do Excel anterior
+
+ATENÇÃO — NÃO É AINDA UMA INSTALAÇÃO DE PRODUÇÃO
+A aplicação funciona localmente sem configurar Supabase, mas nesse modo cada dispositivo mantém os seus próprios dados.
+Para sincronização entre dispositivos:
+1. Criar um projeto Supabase.
+2. Executar supabase_schema.sql no SQL Editor.
+3. Importar/inserir o catálogo inicial.
+4. Configurar URL e chave pública do projeto na secção Gestão.
+5. Publicar os ficheiros num alojamento HTTPS.
+6. Antes de usar com funcionárias reais, implementar autenticação Supabase e políticas RLS restritas. O SQL incluído contém políticas de demonstração permissivas e NÃO deve ser exposto publicamente em produção.
+A leitura de câmara depende do BarcodeDetector, do browser e de HTTPS. Em navegadores sem suporte, introduza o código manualmente ou use um leitor Bluetooth/USB compatível.
+O catálogo inicial veio da folha Excel; os códigos de barras estão vazios porque não estavam presentes na fotografia.
