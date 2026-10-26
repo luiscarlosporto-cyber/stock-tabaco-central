@@ -31,14 +31,14 @@ Deno.serve(async (req) => {
     if (user && pass) {
       // Porta 465 (SSL): as Edge Functions não permitem ligações de saída nas portas 25 e 587.
       const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass: pass.replace(/\s/g, "") } });
-      await t.sendMail({ from: `Stock Tabaco <${user}>`, to: TO, subject, text: body,
+      await t.sendMail({ from: `NexStock <${user}>`, to: TO, subject, text: body,
         attachments: [{ filename: nome, content: csv, contentType: "text/csv; charset=utf-8" }] });
     } else {
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: "Stock Tabaco <onboarding@resend.dev>",
+          from: "NexStock <onboarding@resend.dev>",
           to: [TO],
           subject,
           text: body,

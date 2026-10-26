@@ -1,6 +1,6 @@
 {
-  "name": "Stock Tabaco Central",
-  "short_name": "Stock Tabaco",
+  "name": "NexStock",
+  "short_name": "NexStock",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -10,17 +10,20 @@
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "logo.svg",
-      "sizes": "any",
-      "type": "image/svg+xml"
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
