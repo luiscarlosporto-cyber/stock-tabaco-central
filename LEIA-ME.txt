@@ -17,3 +17,8 @@ Para sincronização entre dispositivos:
 6. Antes de usar com funcionárias reais, implementar autenticação Supabase e políticas RLS restritas. O SQL incluído contém políticas de demonstração permissivas e NÃO deve ser exposto publicamente em produção.
 A leitura de câmara depende do BarcodeDetector, do browser e de HTTPS. Em navegadores sem suporte, introduza o código manualmente ou use um leitor Bluetooth/USB compatível.
 O catálogo inicial veio da folha Excel; os códigos de barras estão vazios porque não estavam presentes na fotografia.
+
+CORREÇÕES (supabase_rls_fix.sql)
+- Fecha a função register_stock_move a quem não tem sessão iniciada.
+- Só administradores podem criar ou editar produtos; funcionárias apenas leem e registam movimentos.
+- Fazer backup antes de executar no SQL Editor.
