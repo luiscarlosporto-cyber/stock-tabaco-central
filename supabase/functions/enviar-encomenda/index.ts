@@ -24,12 +24,13 @@ type Line = { repsol_code?: string; name: string; category: string; unit: string
 
 // Tabaco aquecido e recargas são encomendados a outro fornecedor (segundas e quintas).
 const AQUECIDO = ["Tabaco aquecido", "Cigarros eletrónicos"];
+const FORNECEDOR = { tabaco: "ADELAIDE SOUSA FERREIRA", aquecido: "LOGISTA" };
 const isAquecido = (lines: Line[]) => lines.length > 0 && lines.every((l) => AQUECIDO.includes(l.category));
 
 // As fontes base do PDF só têm o alfabeto latino; troca o resto por "?".
 const safe = (s: unknown) => String(s ?? "").replace(/[^\x20-\x7E -ÿ]/g, "?");
 
-export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco") {
+export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco", fornecedor = "") {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -44,6 +45,7 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
   };
   const room = (h: number) => { if (y < 60 + h) { page = doc.addPage([595, 842]); y = 790; header(); } };
   text(titulo, 50, 20, bold, navy); y -= 22;
+  if (fornecedor) { text(`Fornecedor: ${fornecedor}`, 50, 13, bold); y -= 18; }
   text(`Data: ${dia}`, 50, 11); y -= 15;
   text(`Cliente: ${empresa}`, 50, 11); y -= 15;
   text(`Aprovada por: ${aprovador}`, 50, 11); y -= 26;
@@ -112,11 +114,12 @@ if (import.meta.main) Deno.serve(async (req) => {
     const aprovador = prof?.display_name || user!.email || "administrador";
     const aq = isAquecido(lines);
     const para = aq ? Deno.env.get("EMAIL_FORNECEDOR_AQUECIDO") || to : to;
-    const tipo = aq ? "tabaco aquecido e recargas" : "tabaco";
-    const pdf = await buildPdf(lines, dia, aprovador, empresa, `Encomenda de ${tipo}`);
-    const subject = `Encomenda ${tipo} ${dia}`;
+    const tipo = aq ? "tabaco aquecido e recargas" : "tabaco convencional";
+    const forn = aq ? FORNECEDOR.aquecido : FORNECEDOR.tabaco;
+    const pdf = await buildPdf(lines, dia, aprovador, empresa, `Encomenda de ${tipo}`, forn);
+    const subject = `Encomenda ${forn} - ${tipo} ${dia}`;
     await sendMail(para, empresa, subject,
-      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}.\n\nObrigado.\n${empresa}`,
+      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nObrigado.\n${empresa}`,
       { name: `encomenda-${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`, data: pdf });
     const { error: e2 } = await sb.from("orders")
       .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
