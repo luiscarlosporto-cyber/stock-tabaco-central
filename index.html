@@ -21,11 +21,11 @@ button{font:inherit;cursor:pointer}.btn{border:0;border-radius:10px;padding:12px
 <main>
 <section id="loginPanel" class="card">
 <h2>Acesso à aplicação</h2>
-<p class="notice">Configura a ligação ao projeto Supabase e inicia sessão com uma conta autorizada. A chave pública (anon/publishable) pode estar no navegador; nunca uses a chave secret/service_role.</p>
+<div id="loginConfig"><p class="notice">Configura a ligação ao projeto Supabase e inicia sessão com uma conta autorizada. A chave pública (anon/publishable) pode estar no navegador; nunca uses a chave secret/service_role.</p>
 <label for="loginSbUrl">URL do projeto Supabase</label><input id="loginSbUrl" placeholder="https://xxxx.supabase.co" autocomplete="url">
 <label for="loginSbKey">Chave pública anon/publishable</label><input id="loginSbKey" placeholder="sb_publishable_… ou chave anon pública" autocomplete="off">
 <button id="saveLoginConfig" class="btn alt" style="width:100%;margin-top:10px">Guardar configuração</button>
-<hr>
+<hr></div>
 <label for="loginEmail">Email</label><input id="loginEmail" type="email" autocomplete="username" placeholder="email@exemplo.pt">
 <label for="loginPassword">Palavra-passe</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="Palavra-passe">
 <button id="signInBtn" class="btn" style="width:100%;margin-top:10px">Iniciar sessão</button>
@@ -67,7 +67,7 @@ const INITIAL=[{"id": "p1", "category": "Cigarros", "name": "AUSTIN BLUE", "barc
 const KEYS={products:"stc_products",moves:"stc_moves",cfg:"stc_cloud"};
 let products=load(KEYS.products,[])||[],moves=load(KEYS.moves,[]),cfg=load(KEYS.cfg,{url:"",key:""});
 const DEFAULT_URL="https://cttxkrqduclhaqmaxyls.supabase.co";if(!cfg.url||cfg.url.includes("ctxtkrqduclhaqmaxyls"))cfg.url=DEFAULT_URL;
-const DEFAULT_KEY=(window.STC_CONFIG&&window.STC_CONFIG.publishableKey||"").trim();if(DEFAULT_KEY&&!DEFAULT_KEY.includes("COLAR")&&!cfg.key)cfg.key=DEFAULT_KEY;
+const DEFAULT_KEY=(window.STC_CONFIG&&window.STC_CONFIG.publishableKey||"").trim();const HAS_CONFIG=!!DEFAULT_KEY&&!DEFAULT_KEY.includes("COLAR");if(HAS_CONFIG){cfg.url=DEFAULT_URL;cfg.key=DEFAULT_KEY}
 let cloudReady=false,scanner=null,invScanner=null,anim=null,invAnim=null,activeMode="out",inventory=null,invCounts={},scanLock=false,invLock=false,installPrompt=null;
 let sb=null,currentSession=null,currentUser=null,currentRole="staff",lastCameraCode="",lastCameraAt=0;
 function initSupabase(){if(!cfg.url||!cfg.key||!window.supabase){sb=null;return null}sb=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});return sb}
@@ -113,12 +113,12 @@ document.getElementById("backup").onclick=()=>download("backup-stock-tabaco.json
 document.getElementById("restore").onchange=async e=>{if(cloudOn()){toast("Com a ligação central ativa, o backup não é importado: restaure no Supabase.");e.target.value="";return}try{let d=JSON.parse(await e.target.files[0].text());if(!Array.isArray(d.products)||!Array.isArray(d.moves))throw Error();if(!confirm("Substituir dados locais pelo backup?"))return;products=d.products;moves=d.moves;save(KEYS.products,products);save(KEYS.moves,moves);render();toast("Backup importado")}catch(err){toast("Backup inválido")}e.target.value=""};
 document.getElementById("saveCloud").onclick=async()=>{cfg={url:document.getElementById("sbUrl").value.trim(),key:document.getElementById("sbKey").value.trim()};save(KEYS.cfg,cfg);initSupabase();document.getElementById("loginSbUrl").value=cfg.url;document.getElementById("loginSbKey").value=cfg.key;toast("Configuração guardada. Inicia sessão novamente se necessário.")};
 document.getElementById("sbUrl").value=cfg.url||"";document.getElementById("sbKey").value=cfg.key||"";
-document.getElementById("loginSbUrl").value=cfg.url||"";document.getElementById("loginSbKey").value=cfg.key||"";
+document.getElementById("loginSbUrl").value=cfg.url||"";document.getElementById("loginSbKey").value=cfg.key||"";document.getElementById("loginConfig").classList.toggle("hidden",HAS_CONFIG);
 document.getElementById("saveLoginConfig").onclick=()=>{const url=document.getElementById("loginSbUrl").value.trim(),key=document.getElementById("loginSbKey").value.trim();if(!url||!key)return document.getElementById("loginStatus").textContent="Preenche a URL e a chave pública.";cfg={url,key};save(KEYS.cfg,cfg);initSupabase();document.getElementById("sbUrl").value=url;document.getElementById("sbKey").value=key;document.getElementById("loginStatus").textContent="Configuração guardada. Agora inicia sessão.";toast("Configuração guardada")};
 document.getElementById("signInBtn").onclick=async()=>{try{if(!sb)initSupabase();if(!sb)throw Error("Guarda primeiro a URL e a chave pública.");const email=document.getElementById("loginEmail").value.trim(),password=document.getElementById("loginPassword").value;if(!email||!password)throw Error("Introduz email e palavra-passe.");document.getElementById("signInBtn").disabled=true;document.getElementById("loginStatus").textContent="A iniciar sessão…";const {data,error}=await sb.auth.signInWithPassword({email,password});if(error)throw error;await handleSession(data.session);document.getElementById("loginStatus").textContent="Sessão iniciada."}catch(e){document.getElementById("loginStatus").textContent="Não foi possível iniciar sessão: "+e.message}finally{document.getElementById("signInBtn").disabled=false}};
 document.getElementById("logoutBtn").onclick=async()=>{if(sb)await sb.auth.signOut();currentSession=null;currentUser=null;products=[];moves=[];localStorage.removeItem(KEYS.products);localStorage.removeItem(KEYS.moves);render();setAuthUI();toast("Sessão terminada")};
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("active",x===b));["scan","inventory","stock","settings"].forEach(t=>document.getElementById("tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));if(b.dataset.tab!=="scan")stopCam("out");if(b.dataset.tab!=="inventory")stopCam("inv")});
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e;document.getElementById("installBtn").hidden=false});document.getElementById("installBtn").onclick=async()=>{if(installPrompt){installPrompt.prompt();await installPrompt.userChoice;installPrompt=null}else toast("No Chrome, escolha Adicionar ao ecrã inicial")};
-if("serviceWorker"in navigator&&location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});
+if("serviceWorker"in navigator&&location.protocol.startsWith("http")){const hadSW=!!navigator.serviceWorker.controller;let reloaded=false;navigator.serviceWorker.addEventListener("controllerchange",()=>{if(hadSW&&!reloaded){reloaded=true;location.reload()}});navigator.serviceWorker.register("./sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{})}
 render();setAuthUI();if(cfg.url&&cfg.key){initSupabase();if(sb){sb.auth.getSession().then(({data})=>handleSession(data.session));sb.auth.onAuthStateChange((_event,session)=>{if(session!==currentSession)handleSession(session)});}}
 </script></body></html>
