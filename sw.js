@@ -1,4 +1,4 @@
-const CACHE='stock-tabaco-central-v8';const FILES=['./','./index.html','./manifest.json','./config.js','./logo.svg'];
+const CACHE='stock-tabaco-central-v9';const FILES=['./','./index.html','./manifest.json','./config.js','./logo.svg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES.map(f=>new Request(f,{cache:'reload'})))))});
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(ks=>Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 // Rede primeiro, sem usar a cache HTTP do browser (no-cache revalida sempre com o GitHub Pages).
