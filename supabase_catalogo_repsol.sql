@@ -4,6 +4,9 @@
 
 -- 1) Cópia de segurança da tabela de produtos, antes de qualquer alteração.
 create table if not exists public.products_backup_20261026 as select * from public.products;
+-- A cópia fica fechada à app: só se consulta no painel do Supabase.
+alter table public.products_backup_20261026 enable row level security;
+revoke all on public.products_backup_20261026 from anon, authenticated;
 
 -- 2) Novos campos.
 alter table public.products add column if not exists repsol_code text;
