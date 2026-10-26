@@ -1,7 +1,9 @@
 // Envia ao fornecedor, em PDF, uma proposta de encomenda aprovada por um administrador.
 // Usa a sessão de quem chama: só um administrador consegue ler, aprovar e marcar a encomenda (RLS).
 // Secrets no Supabase:
-//   EMAIL_FORNECEDOR (obrigatório)  destinatário da encomenda
+//   EMAIL_FORNECEDOR (obrigatório)  destinatário da encomenda de tabaco
+//   EMAIL_FORNECEDOR_AQUECIDO (opcional) destinatário da encomenda de tabaco aquecido e recargas;
+//                                    sem ele, vai para EMAIL_FORNECEDOR
 //   EMAIL_EMPRESA    (opcional)     recebe cópia; por defeito portojoaonuneslda@gmail.com
 //   GMAIL_USER + GMAIL_APP_PASSWORD envio pelo Gmail da empresa (recomendado)
 //   ou RESEND_API_KEY               envio pelo Resend (só chega a outros emails com domínio verificado)
@@ -18,12 +20,16 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number };
+type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number; vol_size?: number | null };
+
+// Tabaco aquecido e recargas são encomendados a outro fornecedor (segundas e quintas).
+const AQUECIDO = ["Tabaco aquecido", "Cigarros eletrónicos"];
+const isAquecido = (lines: Line[]) => lines.length > 0 && lines.every((l) => AQUECIDO.includes(l.category));
 
 // As fontes base do PDF só têm o alfabeto latino; troca o resto por "?".
 const safe = (s: unknown) => String(s ?? "").replace(/[^\x20-\x7E -ÿ]/g, "?");
 
-export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string) {
+export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco") {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -37,7 +43,7 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
     y -= 6; page.drawLine({ start: { x: 50, y }, end: { x: 545, y }, thickness: 0.5, color: grey }); y -= 14;
   };
   const room = (h: number) => { if (y < 60 + h) { page = doc.addPage([595, 842]); y = 790; header(); } };
-  text("Encomenda de tabaco", 50, 20, bold, navy); y -= 22;
+  text(titulo, 50, 20, bold, navy); y -= 22;
   text(`Data: ${dia}`, 50, 11); y -= 15;
   text(`Cliente: ${empresa}`, 50, 11); y -= 15;
   text(`Aprovada por: ${aprovador}`, 50, 11); y -= 26;
@@ -50,14 +56,14 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
     for (const l of lines.filter((l) => l.category === c)) {
       room(14);
       text(l.repsol_code || "", 50); text(l.name.slice(0, 52), 140);
-      text(String(l.qty), 450, 10, bold); text(l.unit, 500); y -= 14;
+      text(String(l.qty), 450, 10, bold); text(l.unit === "volumes" && l.vol_size && l.vol_size !== 10 ? `vol. de ${l.vol_size}` : l.unit, 500); y -= 14;
       tot[l.unit] = (tot[l.unit] || 0) + l.qty;
     }
     y -= 6;
   }
   room(40); y -= 4;
   page.drawLine({ start: { x: 50, y: y + 10 }, end: { x: 545, y: y + 10 }, thickness: 0.5, color: grey });
-  text(`Total: ${tot.volumes} volumes (10 unidades cada) e ${tot.unidades} unidades`, 50, 11, bold); y -= 15;
+  text(`Total: ${tot.volumes} volumes e ${tot.unidades} unidades`, 50, 11, bold); y -= 15;
   return await doc.save();
 }
 
@@ -104,16 +110,19 @@ if (import.meta.main) Deno.serve(async (req) => {
     if (!lines.length) return json({ ok: false, error: "A encomenda está vazia" }, 400);
     const dia = new Date().toLocaleDateString("pt-PT", { timeZone: "Europe/Lisbon" });
     const aprovador = prof?.display_name || user!.email || "administrador";
-    const pdf = await buildPdf(lines, dia, aprovador, empresa);
-    const subject = `Encomenda tabaco ${dia}`;
-    await sendMail(to, empresa, subject,
-      `Bom dia,\n\nSegue em anexo a encomenda de tabaco de ${dia}.\n\nObrigado.\n${empresa}`,
-      { name: `encomenda-tabaco-${dia.replaceAll("/", "-")}.pdf`, data: pdf });
+    const aq = isAquecido(lines);
+    const para = aq ? Deno.env.get("EMAIL_FORNECEDOR_AQUECIDO") || to : to;
+    const tipo = aq ? "tabaco aquecido e recargas" : "tabaco";
+    const pdf = await buildPdf(lines, dia, aprovador, empresa, `Encomenda de ${tipo}`);
+    const subject = `Encomenda ${tipo} ${dia}`;
+    await sendMail(para, empresa, subject,
+      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}.\n\nObrigado.\n${empresa}`,
+      { name: `encomenda-${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`, data: pdf });
     const { error: e2 } = await sb.from("orders")
-      .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: to, approved_by: user!.id })
+      .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
       .eq("id", order_id).eq("status", "pendente");
-    if (e2) return json({ ok: true, para: to, aviso: "Enviada, mas não ficou marcada como enviada" });
-    return json({ ok: true, para: to });
+    if (e2) return json({ ok: true, para, aviso: "Enviada, mas não ficou marcada como enviada" });
+    return json({ ok: true, para });
   } catch (e) {
     return json({ ok: false, error: e instanceof Error ? e.message : "Erro no envio" }, 500);
   }
