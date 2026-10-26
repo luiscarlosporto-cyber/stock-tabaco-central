@@ -15,6 +15,7 @@ button{font:inherit;cursor:pointer}.btn{border:0;border-radius:10px;padding:12px
 .notice{font-size:13px;line-height:1.45;color:var(--mut)}.warn{color:var(--amber)}.hidden{display:none!important}.row{display:grid;grid-template-columns:1fr 100px;gap:7px;align-items:end}
 #videoBox{background:#111;border-radius:12px;overflow:hidden;margin-top:10px}#videoBox video{width:100%;max-height:330px;object-fit:cover}.product{border:1px solid var(--bd);border-radius:11px;padding:11px;margin-top:8px}.productTop{display:flex;justify-content:space-between;gap:8px}.pname{font-weight:700}.meta{font-size:12px;color:var(--mut);margin-top:4px;overflow-wrap:anywhere}.qty{font-size:21px;font-weight:750;color:var(--g)}.mini{font-size:12px;padding:8px}.badge{font-size:11px;background:#edf3ee;color:var(--g);border-radius:99px;padding:4px 7px}.good{color:#267448;font-weight:700}.bad{color:var(--red);font-weight:700}hr{border:0;border-top:1px solid var(--bd);margin:13px 0}footer{text-align:center;font-size:11px;color:var(--mut);padding:10px}#toast{display:none;position:fixed;bottom:16px;left:12px;right:12px;max-width:720px;margin:auto;background:#18231d;color:white;border-radius:12px;padding:13px;z-index:10}
 </style><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="config.js"></script>
 </head><body>
 <header><div class="head"><div><h1>📦 Stock Tabaco</h1><p>Inventário e saídas · centralizado</p></div><div style="display:flex;gap:6px;align-items:center"><button id="logoutBtn" class="btn alt mini hidden">Sair</button><button id="installBtn" class="btn alt mini" hidden>Instalar</button></div></div></header>
 <main>
@@ -66,6 +67,7 @@ const INITIAL=[{"id": "p1", "category": "Cigarros", "name": "AUSTIN BLUE", "barc
 const KEYS={products:"stc_products",moves:"stc_moves",cfg:"stc_cloud"};
 let products=load(KEYS.products,[])||[],moves=load(KEYS.moves,[]),cfg=load(KEYS.cfg,{url:"",key:""});
 const DEFAULT_URL="https://cttxkrqduclhaqmaxyls.supabase.co";if(!cfg.url||cfg.url.includes("ctxtkrqduclhaqmaxyls"))cfg.url=DEFAULT_URL;
+const DEFAULT_KEY=(window.STC_CONFIG&&window.STC_CONFIG.publishableKey||"").trim();if(DEFAULT_KEY&&!DEFAULT_KEY.includes("COLAR")&&!cfg.key)cfg.key=DEFAULT_KEY;
 let cloudReady=false,scanner=null,invScanner=null,anim=null,invAnim=null,activeMode="out",inventory=null,invCounts={},scanLock=false,invLock=false,installPrompt=null;
 let sb=null,currentSession=null,currentUser=null,currentRole="staff",lastCameraCode="",lastCameraAt=0;
 function initSupabase(){if(!cfg.url||!cfg.key||!window.supabase){sb=null;return null}sb=window.supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});return sb}
