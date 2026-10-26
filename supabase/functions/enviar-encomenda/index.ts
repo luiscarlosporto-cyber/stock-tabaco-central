@@ -40,7 +40,7 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
     page.drawText(safe(t), { x, y, size, font: f, color });
   const header = () => {
     text("Código Repsol", 50, 9, bold, grey); text("Produto", 140, 9, bold, grey);
-    text("Quantidade", 430, 9, bold, grey); text("Unidade", 500, 9, bold, grey);
+    text("Quantidade", 488 - bold.widthOfTextAtSize("Quantidade", 9), 9, bold, grey); text("Unidade", 498, 9, bold, grey);
     y -= 6; page.drawLine({ start: { x: 50, y }, end: { x: 545, y }, thickness: 0.5, color: grey }); y -= 14;
   };
   const room = (h: number) => { if (y < 60 + h) { page = doc.addPage([595, 842]); y = 790; header(); } };
@@ -57,8 +57,8 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
     text(c, 50, 11, bold, navy); y -= 15;
     for (const l of lines.filter((l) => l.category === c)) {
       room(14);
-      text(l.repsol_code || "", 50); text(l.name.slice(0, 52), 140);
-      text(String(l.qty), 450, 10, bold); text(l.unit === "volumes" && l.vol_size && l.vol_size !== 10 ? `vol. de ${l.vol_size}` : l.unit, 500); y -= 14;
+      text(l.repsol_code || "", 50); text(l.name.slice(0, 50), 140);
+      text(String(l.qty), 488 - bold.widthOfTextAtSize(String(l.qty), 10), 10, bold); text(l.unit === "volumes" && l.vol_size && l.vol_size !== 10 ? `vol. de ${l.vol_size}` : l.unit, 498); y -= 14;
       tot[l.unit] = (tot[l.unit] || 0) + l.qty;
     }
     y -= 6;
