@@ -74,7 +74,7 @@ async function sendMail(to: string, cc: string, subject: string, body: string, f
   if (user && pass) {
     // Porta 465 (SSL): as Edge Functions não permitem ligações de saída nas portas 25 e 587.
     const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass: pass.replace(/\s/g, "") } });
-    await t.sendMail({ from: `Stock Tabaco <${user}>`, to, cc: cc || undefined, subject, text: body,
+    await t.sendMail({ from: `NexStock <${user}>`, to, cc: cc || undefined, subject, text: body,
       attachments: [{ filename: file.name, content: file.data, contentType: "application/pdf" }] });
     return;
   }
@@ -83,7 +83,7 @@ async function sendMail(to: string, cc: string, subject: string, body: string, f
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: "Stock Tabaco <onboarding@resend.dev>", to: [to], cc: cc ? [cc] : undefined, subject, text: body,
+    body: JSON.stringify({ from: "NexStock <onboarding@resend.dev>", to: [to], cc: cc ? [cc] : undefined, subject, text: body,
       attachments: [{ filename: file.name, content: encodeBase64(file.data) }] }),
   });
   if (!r.ok) throw new Error(`Email recusado (${r.status})`);
