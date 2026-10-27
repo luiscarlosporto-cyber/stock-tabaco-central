@@ -7,6 +7,9 @@
 //   EMAIL_EMPRESA    (opcional)     recebe cópia; por defeito portojoaonuneslda@gmail.com
 //   GMAIL_USER + GMAIL_APP_PASSWORD envio pelo Gmail da empresa (recomendado)
 //   ou RESEND_API_KEY               envio pelo Resend (só chega a outros emails com domínio verificado)
+// Duas empresas: a tabela companies (supabase_empresas.sql) dá, por loja, o nome do cliente, a cópia, os emails dos
+// fornecedores e o sufixo dos secrets do Gmail. Penafiel envia com GMAIL_USER_PENAFIEL + GMAIL_APP_PASSWORD_PENAFIEL
+// e nunca pela conta de Santo Tirso.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import nodemailer from "npm:nodemailer@6.9.16";
@@ -20,6 +23,7 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+type Company = { id: string; name: string; short_name: string; email_empresa: string; email_tabaco: string; email_aquecido: string; gmail_suffix: string };
 type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number; vol_size?: number | null };
 
 // Tabaco aquecido e recargas são encomendados a outro fornecedor (segundas e quintas).
@@ -69,8 +73,9 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
   return await doc.save();
 }
 
-async function sendMail(to: string, cc: string, subject: string, body: string, file: { name: string; data: Uint8Array }) {
-  const user = Deno.env.get("GMAIL_USER"), pass = Deno.env.get("GMAIL_APP_PASSWORD");
+async function sendMail(to: string, cc: string, subject: string, body: string, file: { name: string; data: Uint8Array }, suffix = "") {
+  const user = Deno.env.get("GMAIL_USER" + suffix), pass = Deno.env.get("GMAIL_APP_PASSWORD" + suffix);
+  if (suffix && !(user && pass)) throw new Error(`Falta configurar GMAIL_USER${suffix} e GMAIL_APP_PASSWORD${suffix}`);
   if (user && pass) {
     // Porta 465 (SSL): as Edge Functions não permitem ligações de saída nas portas 25 e 587.
     const t = nodemailer.createTransport({ host: "smtp.gmail.com", port: 465, secure: true, auth: { user, pass: pass.replace(/\s/g, "") } });
@@ -92,8 +97,7 @@ async function sendMail(to: string, cc: string, subject: string, body: string, f
 if (import.meta.main) Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ ok: false, error: "Método inválido" }, 405);
-  const to = Deno.env.get("EMAIL_FORNECEDOR");
-  if (!to) return json({ ok: false, error: "Falta configurar EMAIL_FORNECEDOR" }, 500);
+  const to = Deno.env.get("EMAIL_FORNECEDOR") ?? "";
   const empresa = Deno.env.get("EMAIL_EMPRESA") ?? "portojoaonuneslda@gmail.com";
   const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
@@ -112,15 +116,24 @@ if (import.meta.main) Deno.serve(async (req) => {
     if (!lines.length) return json({ ok: false, error: "A encomenda está vazia" }, 400);
     const dia = new Date().toLocaleDateString("pt-PT", { timeZone: "Europe/Lisbon" });
     const aprovador = prof?.display_name || user!.email || "administrador";
+    let comp: Company | null = null;
+    if (o.company_id) {
+      const { data: c } = await sb.from("companies").select("*").eq("id", o.company_id).maybeSingle();
+      if (!c) return json({ ok: false, error: "Loja da encomenda não encontrada" }, 404);
+      comp = c as Company;
+    }
     const aq = isAquecido(lines);
-    const para = aq ? Deno.env.get("EMAIL_FORNECEDOR_AQUECIDO") || to : to;
+    const para = aq ? comp?.email_aquecido || Deno.env.get("EMAIL_FORNECEDOR_AQUECIDO") || to : comp?.email_tabaco || to;
+    if (!para) return json({ ok: false, error: "Falta configurar EMAIL_FORNECEDOR" }, 500);
+    const cc = comp?.email_empresa || empresa, cliente = comp?.name || empresa;
     const tipo = aq ? "tabaco aquecido e recargas" : "tabaco convencional";
     const forn = aq ? FORNECEDOR.aquecido : FORNECEDOR.tabaco;
-    const pdf = await buildPdf(lines, dia, aprovador, empresa, `Encomenda de ${tipo}`, forn);
-    const subject = `Encomenda ${forn} - ${tipo} ${dia}`;
-    await sendMail(para, empresa, subject,
-      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nObrigado.\n${empresa}`,
-      { name: `encomenda-${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`, data: pdf });
+    const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn);
+    const subject = `Encomenda ${forn} - ${comp ? comp.name + " - " : ""}${tipo} ${dia}`;
+    const loja = comp ? comp.short_name.toLowerCase().replace(/\s+/g, "-") + "-" : "";
+    await sendMail(para, cc, subject,
+      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nObrigado.\n${cliente}`,
+      { name: `encomenda-${loja}${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`, data: pdf }, comp?.gmail_suffix || "");
     const { error: e2 } = await sb.from("orders")
       .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
       .eq("id", order_id).eq("status", "pendente");
