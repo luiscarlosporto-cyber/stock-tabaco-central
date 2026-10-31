@@ -10,6 +10,7 @@
 // Duas empresas: a tabela companies (supabase_empresas.sql) dá, por loja, o nome do cliente, a cópia, os emails dos
 // fornecedores e o sufixo dos secrets do Gmail. Penafiel envia com GMAIL_USER_PENAFIEL + GMAIL_APP_PASSWORD_PENAFIEL
 // e nunca pela conta de Santo Tirso.
+// Com { preview: true } devolve o PDF em base64 para ser visto antes da aprovação, sem enviar nada.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import nodemailer from "npm:nodemailer@6.9.16";
@@ -103,7 +104,7 @@ if (import.meta.main) Deno.serve(async (req) => {
     global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
   });
   try {
-    const { order_id } = await req.json();
+    const { order_id, preview } = await req.json();
     if (typeof order_id !== "string") return json({ ok: false, error: "Pedido inválido" }, 400);
     const { data: isAdmin } = await sb.rpc("is_admin");
     if (isAdmin !== true) return json({ ok: false, error: "Só um administrador pode aprovar encomendas" }, 403);
@@ -131,9 +132,12 @@ if (import.meta.main) Deno.serve(async (req) => {
     const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn);
     const subject = `Encomenda ${forn} - ${comp ? comp.name + " - " : ""}${tipo} ${dia}`;
     const loja = comp ? comp.short_name.toLowerCase().replace(/\s+/g, "-") + "-" : "";
+    const ficheiro = `encomenda-${loja}${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`;
+    // Pré-visualização (31/10/2026): devolve o PDF exatamente como seria enviado, sem enviar nem marcar a encomenda.
+    if (preview === true) return json({ ok: true, preview: true, para, fornecedor: forn, ficheiro, pdf: encodeBase64(pdf) });
     await sendMail(para, cc, subject,
       `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nObrigado.\n${cliente}`,
-      { name: `encomenda-${loja}${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`, data: pdf }, comp?.gmail_suffix || "");
+      { name: ficheiro, data: pdf }, comp?.gmail_suffix || "");
     const { error: e2 } = await sb.from("orders")
       .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
       .eq("id", order_id).eq("status", "pendente");
