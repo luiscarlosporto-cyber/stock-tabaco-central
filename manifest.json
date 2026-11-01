@@ -1,11 +1,11 @@
 {
-  "name": "NexStock",
-  "short_name": "NexStock",
+  "name": "mystationbox · stock",
+  "short_name": "mystationbox",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f2f5f9",
-  "theme_color": "#12294d",
+  "theme_color": "#003B5C",
   "icons": [
     {
       "src": "icon-192.png",
