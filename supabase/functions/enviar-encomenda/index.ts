@@ -25,52 +25,99 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 type Company = { id: string; name: string; short_name: string; email_empresa: string; email_tabaco: string; email_aquecido: string; gmail_suffix: string };
-type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number; vol_size?: number | null };
+type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number; vol_size?: number | null; livre?: boolean };
 
 // Tabaco aquecido e recargas são encomendados a outro fornecedor (segundas e quintas).
 const AQUECIDO = ["Tabaco aquecido", "Cigarros eletrónicos"];
 const FORNECEDOR = { tabaco: "ADELAIDE SOUSA FERREIRA", aquecido: "LOGISTA" };
-const isAquecido = (lines: Line[]) => lines.length > 0 && lines.every((l) => AQUECIDO.includes(l.category));
+// Referências livres ("Outras referências") não decidem o fornecedor.
+const isAquecido = (lines: Line[]) => { const c = lines.filter((l) => l.category !== "Outras referências"); return c.length > 0 && c.every((l) => AQUECIDO.includes(l.category)); };
 
 // As fontes base do PDF só têm o alfabeto latino; troca o resto por "?".
-const safe = (s: unknown) => String(s ?? "").replace(/[^\x20-\x7E -ÿ]/g, "?");
+const safe = (s: unknown) => String(s ?? "").replace(/[^\x20-\x7E\xA0-\xFF]/g, "?");
 
-export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco", fornecedor = "") {
+const CAT_ORD = ["Cigarros", "Onças", "Latas", "Sacos", "Cigarrilhas", "Tabaco aquecido", "Cigarros eletrónicos"];
+const catOrd = (c: string) => { const k = CAT_ORD.indexOf(c); return k < 0 ? 99 : k; };
+const UND: Record<string, string> = { Latas: "latas", Sacos: "sacos" };
+// Resumo por categoria: "12 volumes", "5 LATAS", "2 volumes + 3 UNIDADES".
+export function resumo(lines: Line[]) {
+  const m: Record<string, { cat: string; vol: number; un: number }> = {};
+  for (const l of lines) { const c = l.category || "Outros"; const r = m[c] ??= { cat: c, vol: 0, un: 0 }; if (l.unit === "volumes") r.vol += l.qty; else r.un += l.qty; }
+  return Object.values(m).sort((a, b) => catOrd(a.cat) - catOrd(b.cat) || a.cat.localeCompare(b.cat, "pt")).map((r) => {
+    const p: string[] = [], u = UND[r.cat] || "unidades";
+    if (r.vol) p.push(`${r.vol} ${r.vol === 1 ? "volume" : "volumes"}`);
+    if (r.un) p.push(`${r.un} ${(r.un === 1 ? u.replace(/s$/, "") : u).toUpperCase()}`);
+    return { cat: r.cat, unidades: !r.vol, txt: p.join(" + ") };
+  });
+}
+
+export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco", fornecedor = "", notas = "") {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const navy = rgb(0.07, 0.16, 0.3), grey = rgb(0.4, 0.45, 0.5);
+  const navy = rgb(0.07, 0.16, 0.3), grey = rgb(0.4, 0.45, 0.5), laranja = rgb(0.76, 0.25, 0.05), fundoUn = rgb(1, 0.95, 0.9);
   let page = doc.addPage([595, 842]), y = 790;
   const text = (t: string, x: number, size = 10, f = font, color = rgb(0, 0, 0)) =>
     page.drawText(safe(t), { x, y, size, font: f, color });
+  const right = (t: string, xr: number, size = 10, f = font, color = rgb(0, 0, 0)) => text(t, xr - f.widthOfTextAtSize(safe(t), size), size, f, color);
   const header = () => {
     text("Código Repsol", 50, 9, bold, grey); text("Produto", 140, 9, bold, grey);
-    text("Quantidade", 488 - bold.widthOfTextAtSize("Quantidade", 9), 9, bold, grey); text("Unidade", 498, 9, bold, grey);
+    right("Quantidade", 488, 9, bold, grey); text("Unidade", 498, 9, bold, grey);
     y -= 6; page.drawLine({ start: { x: 50, y }, end: { x: 545, y }, thickness: 0.5, color: grey }); y -= 14;
   };
-  const room = (h: number) => { if (y < 60 + h) { page = doc.addPage([595, 842]); y = 790; header(); } };
+  const room = (h: number, cab = true) => { if (y < 60 + h) { page = doc.addPage([595, 842]); y = 790; if (cab) header(); } };
+  const linhasTexto = (t: string, max: number, size: number) => {
+    const out: string[] = [];
+    for (const par of String(t).split(/\r?\n/).map(safe)) {
+      let cur = "";
+      for (const w of par.split(/\s+/)) { const n = cur ? cur + " " + w : w; if (font.widthOfTextAtSize(n, size) > max && cur) { out.push(cur); cur = w; } else cur = n; }
+      out.push(cur);
+    }
+    return out;
+  };
   text(titulo, 50, 20, bold, navy); y -= 22;
   if (fornecedor) { text(`Fornecedor: ${fornecedor}`, 50, 13, bold); y -= 18; }
   text(`Data: ${dia}`, 50, 11); y -= 15;
   text(`Cliente: ${empresa}`, 50, 11); y -= 15;
-  text(`Aprovada por: ${aprovador}`, 50, 11); y -= 26;
+  text(`Aprovada por: ${aprovador}`, 50, 11); y -= 22;
+  // Resumo por categoria
+  const res = resumo(lines);
+  const hRes = 22 + res.length * 15;
+  page.drawRectangle({ x: 50, y: y - hRes + 14, width: 495, height: hRes, color: rgb(0.95, 0.96, 0.98), borderColor: grey, borderWidth: 0.5 });
+  text("RESUMO", 60, 10, bold, navy); y -= 17;
+  for (const r of res) { text(r.cat, 60, 11); right(r.txt, 535, 11, bold, r.unidades ? laranja : rgb(0, 0, 0)); y -= 15; }
+  y -= 16;
   header();
-  const cats = [...new Set(lines.map((l) => l.category))];
+  const cats = [...new Set(lines.map((l) => l.category || "Outros"))].sort((a, b) => catOrd(a) - catOrd(b) || a.localeCompare(b, "pt"));
   const tot: Record<string, number> = { volumes: 0, unidades: 0 };
   for (const c of cats) {
-    room(40);
-    text(c, 50, 11, bold, navy); y -= 15;
-    for (const l of lines.filter((l) => l.category === c)) {
+    const ls = lines.filter((l) => (l.category || "Outros") === c), soUn = ls.every((l) => l.unit !== "volumes");
+    room(44);
+    text(c, 50, 11, bold, soUn ? laranja : navy);
+    if (soUn) text("(ENCOMENDA À UNIDADE)", 60 + bold.widthOfTextAtSize(safe(c), 11), 9, bold, laranja);
+    y -= 15;
+    for (const l of ls) {
       room(14);
+      const un = l.unit !== "volumes";
+      if (un) page.drawRectangle({ x: 48, y: y - 4, width: 499, height: 14, color: fundoUn });
       text(l.repsol_code || "", 50); text(l.name.slice(0, 50), 140);
-      text(String(l.qty), 488 - bold.widthOfTextAtSize(String(l.qty), 10), 10, bold); text(l.unit === "volumes" && l.vol_size && l.vol_size !== 10 ? `vol. de ${l.vol_size}` : l.unit, 498); y -= 14;
-      tot[l.unit] = (tot[l.unit] || 0) + l.qty;
+      right(String(l.qty), 488, 10, bold, un ? laranja : rgb(0, 0, 0));
+      if (un) text("UNIDADES", 498, 9, bold, laranja);
+      else text(l.vol_size && l.vol_size !== 10 ? `vol. de ${l.vol_size}` : "volumes", 498);
+      y -= 14;
+      tot[un ? "unidades" : "volumes"] += l.qty;
     }
     y -= 6;
   }
-  room(40); y -= 4;
+  room(40, false); y -= 4;
   page.drawLine({ start: { x: 50, y: y + 10 }, end: { x: 545, y: y + 10 }, thickness: 0.5, color: grey });
   text(`Total: ${tot.volumes} volumes e ${tot.unidades} unidades`, 50, 11, bold); y -= 15;
+  if (notas.trim()) {
+    const ls = linhasTexto(notas.trim(), 475, 10);
+    room(30 + ls.length * 13, false); y -= 12;
+    text("OBSERVAÇÕES", 50, 10, bold, navy); y -= 15;
+    for (const l of ls) { room(14, false); text(l, 60, 10); y -= 13; }
+  }
   return await doc.save();
 }
 
@@ -129,14 +176,15 @@ if (import.meta.main) Deno.serve(async (req) => {
     const cc = comp?.email_empresa || empresa, cliente = comp?.name || empresa;
     const tipo = aq ? "tabaco aquecido e recargas" : "tabaco convencional";
     const forn = aq ? FORNECEDOR.aquecido : FORNECEDOR.tabaco;
-    const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn);
+    const notas = String(o.notes ?? "").slice(0, 1000);
+    const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn, notas);
     const subject = `Encomenda ${forn} - ${comp ? comp.name + " - " : ""}${tipo} ${dia}`;
     const loja = comp ? comp.short_name.toLowerCase().replace(/\s+/g, "-") + "-" : "";
     const ficheiro = `encomenda-${loja}${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`;
     // Pré-visualização (31/10/2026): devolve o PDF exatamente como seria enviado, sem enviar nem marcar a encomenda.
     if (preview === true) return json({ ok: true, preview: true, para, fornecedor: forn, ficheiro, pdf: encodeBase64(pdf) });
     await sendMail(para, cc, subject,
-      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nObrigado.\n${cliente}`,
+      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nResumo:\n${resumo(lines).map((r) => `- ${r.cat}: ${r.txt}`).join("\n")}${notas.trim() ? `\n\nObservações:\n${notas.trim()}` : ""}\n\nObrigado.\n${cliente}`,
       { name: ficheiro, data: pdf }, comp?.gmail_suffix || "");
     const { error: e2 } = await sb.from("orders")
       .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
