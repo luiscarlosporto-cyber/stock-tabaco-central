@@ -12,7 +12,7 @@
 // e nunca pela conta de Santo Tirso.
 // Com { preview: true } devolve o PDF em base64 para ser visto antes da aprovação, sem enviar nada.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { PDFDocument, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
+import { PDFDocument, PDFString, StandardFonts, rgb } from "npm:pdf-lib@1.17.1";
 import nodemailer from "npm:nodemailer@6.9.16";
 import { encodeBase64 } from "jsr:@std/encoding@1/base64";
 
@@ -24,7 +24,8 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-type Company = { id: string; name: string; short_name: string; email_empresa: string; email_tabaco: string; email_aquecido: string; gmail_suffix: string };
+type Company = { id: string; name: string; short_name: string; email_empresa: string; email_tabaco: string; email_aquecido: string; gmail_suffix: string; morada_entrega?: string; mapa_url?: string; cliente_logista?: string };
+type Entrega = { morada?: string; mapa?: string; clienteLogista?: string };
 type Line = { repsol_code?: string; name: string; category: string; unit: string; qty: number; vol_size?: number | null; livre?: boolean };
 
 // Tabaco aquecido e recargas são encomendados a outro fornecedor (segundas e quintas).
@@ -51,7 +52,7 @@ export function resumo(lines: Line[]) {
   });
 }
 
-export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco", fornecedor = "", notas = "") {
+export async function buildPdf(lines: Line[], dia: string, aprovador: string, empresa: string, titulo = "Encomenda de tabaco", fornecedor = "", notas = "", entrega: Entrega = {}) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -78,15 +79,20 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
   text(titulo, 50, 20, bold, navy); y -= 22;
   if (fornecedor) { text(`Fornecedor: ${fornecedor}`, 50, 13, bold); y -= 18; }
   text(`Data: ${dia}`, 50, 11); y -= 15;
-  text(`Cliente: ${empresa}`, 50, 11); y -= 15;
-  text(`Aprovada por: ${aprovador}`, 50, 11); y -= 22;
-  // Resumo por categoria
-  const res = resumo(lines);
-  const hRes = 22 + res.length * 15;
-  page.drawRectangle({ x: 50, y: y - hRes + 14, width: 495, height: hRes, color: rgb(0.95, 0.96, 0.98), borderColor: grey, borderWidth: 0.5 });
-  text("RESUMO", 60, 10, bold, navy); y -= 17;
-  for (const r of res) { text(r.cat, 60, 11); right(r.txt, 535, 11, bold, r.unidades ? laranja : rgb(0, 0, 0)); y -= 15; }
-  y -= 16;
+  text("Cliente: ", 50, 11); text(empresa, 50 + font.widthOfTextAtSize("Cliente: ", 11), 11, bold); y -= 15;
+  if (entrega.clienteLogista) { text(`Nº Cliente Logista: ${entrega.clienteLogista}`, 50, 11, bold); y -= 15; }
+  if (entrega.morada) { text(`Morada de entrega: ${entrega.morada}`, 50, 11); y -= 15; }
+  if (entrega.mapa) {
+    const lbl = "Localização: ", x0 = 50 + font.widthOfTextAtSize(lbl, 10), w = font.widthOfTextAtSize(safe(entrega.mapa), 10);
+    text(lbl, 50, 10, font, grey); text(entrega.mapa, x0, 10, font, rgb(0.05, 0.3, 0.75));
+    page.drawLine({ start: { x: x0, y: y - 1.5 }, end: { x: x0 + w, y: y - 1.5 }, thickness: 0.5, color: rgb(0.05, 0.3, 0.75) });
+    // ligação clicável para o mapa
+    const lk = doc.context.register(doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [x0, y - 3, x0 + w, y + 10], Border: [0, 0, 0],
+      A: { Type: "Action", S: "URI", URI: PDFString.of(entrega.mapa) } }));
+    page.node.addAnnot(lk);
+    y -= 15;
+  }
+  text(`Aprovada por: ${aprovador}`, 50, 11); y -= 26;
   header();
   const cats = [...new Set(lines.map((l) => l.category || "Outros"))].sort((a, b) => catOrd(a) - catOrd(b) || a.localeCompare(b, "pt"));
   const tot: Record<string, number> = { volumes: 0, unidades: 0 };
@@ -112,6 +118,11 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
   room(40, false); y -= 4;
   page.drawLine({ start: { x: 50, y: y + 10 }, end: { x: 545, y: y + 10 }, thickness: 0.5, color: grey });
   text(`Total: ${tot.volumes} volumes e ${tot.unidades} unidades`, 50, 11, bold); y -= 15;
+  // Resumo por categoria, no fim e em letra mais pequena
+  const res = resumo(lines);
+  room(30 + res.length * 12, false); y -= 8;
+  text("RESUMO", 50, 8, bold, grey); y -= 12;
+  for (const r of res) { text(r.cat, 60, 9, font, grey); right(r.txt, 260, 9, bold, r.unidades ? laranja : rgb(0.2, 0.2, 0.2)); y -= 12; }
   if (notas.trim()) {
     const ls = linhasTexto(notas.trim(), 475, 10);
     room(30 + ls.length * 13, false); y -= 12;
@@ -177,14 +188,15 @@ if (import.meta.main) Deno.serve(async (req) => {
     const tipo = aq ? "tabaco aquecido e recargas" : "tabaco convencional";
     const forn = aq ? FORNECEDOR.aquecido : FORNECEDOR.tabaco;
     const notas = String(o.notes ?? "").slice(0, 1000);
-    const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn, notas);
+    const entrega: Entrega = { morada: comp?.morada_entrega || "", mapa: comp?.mapa_url || "", clienteLogista: aq ? comp?.cliente_logista || "" : "" };
+    const pdf = await buildPdf(lines, dia, aprovador, cliente, `Encomenda de ${tipo}`, forn, notas, entrega);
     const subject = `Encomenda ${forn} - ${comp ? comp.name + " - " : ""}${tipo} ${dia}`;
     const loja = comp ? comp.short_name.toLowerCase().replace(/\s+/g, "-") + "-" : "";
     const ficheiro = `encomenda-${loja}${aq ? "aquecido" : "tabaco"}-${dia.replaceAll("/", "-")}.pdf`;
     // Pré-visualização (31/10/2026): devolve o PDF exatamente como seria enviado, sem enviar nem marcar a encomenda.
     if (preview === true) return json({ ok: true, preview: true, para, fornecedor: forn, ficheiro, pdf: encodeBase64(pdf) });
     await sendMail(para, cc, subject,
-      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nResumo:\n${resumo(lines).map((r) => `- ${r.cat}: ${r.txt}`).join("\n")}${notas.trim() ? `\n\nObservações:\n${notas.trim()}` : ""}\n\nObrigado.\n${cliente}`,
+      `Bom dia,\n\nSegue em anexo a encomenda de ${tipo} de ${dia}, para ${forn}.\n\nCliente: ${cliente}${entrega.clienteLogista ? `\nNº Cliente Logista: ${entrega.clienteLogista}` : ""}${entrega.morada ? `\nMorada de entrega: ${entrega.morada}` : ""}${entrega.mapa ? `\nLocalização: ${entrega.mapa}` : ""}\n\nResumo:\n${resumo(lines).map((r) => `- ${r.cat}: ${r.txt}`).join("\n")}${notas.trim() ? `\n\nObservações:\n${notas.trim()}` : ""}\n\nObrigado.\n${cliente}`,
       { name: ficheiro, data: pdf }, comp?.gmail_suffix || "");
     const { error: e2 } = await sb.from("orders")
       .update({ status: "enviada", sent_at: new Date().toISOString(), sent_to: para, approved_by: user!.id })
