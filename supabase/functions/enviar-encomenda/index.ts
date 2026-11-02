@@ -129,6 +129,13 @@ export async function buildPdf(lines: Line[], dia: string, aprovador: string, em
     text("OBSERVAÇÕES", 50, 10, bold, navy); y -= 15;
     for (const l of ls) { room(14, false); text(l, 60, 10); y -= 13; }
   }
+  // Marca registada no rodapé de cada página (mystationbox®, 02/11/2026); sem imagem, só o texto
+  let marca: Awaited<ReturnType<typeof doc.embedPng>> | null = null;
+  try { const r = await fetch("https://luiscarlosporto-cyber.github.io/mystationbox-app/marca_pdf.png"); if (r.ok) marca = await doc.embedPng(new Uint8Array(await r.arrayBuffer())); } catch (_) { /* sem imagem */ }
+  for (const pg of doc.getPages()) {
+    if (marca) pg.drawImage(marca, { x: 50, y: 22, width: 12 * marca.width / marca.height, height: 12 });
+    else pg.drawText("mystationbox\u00AE", { x: 50, y: 25, size: 8, font: bold, color: navy });
+  }
   return await doc.save();
 }
 
